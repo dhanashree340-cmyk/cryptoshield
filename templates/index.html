@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CryptoShield Dashboard</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --panel:#ffffff; --text:#111318; --muted:#5b6270;
+    --border:#e2e4e9; --accent:#4f46e5; --good:#15803d; --bad:#b91c1c;
+    --mono-bg:#0f1117; --mono-text:#7ee787;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:24px;}
+  .wrap{max-width:960px;margin:0 auto;}
+  h1{font-size:1.5rem;margin:0 0 4px;}
+  .sub{color:var(--muted);font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;margin:0 0 24px;}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px;}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media (max-width:700px){.grid3{grid-template-columns:1fr;} .grid2{grid-template-columns:1fr;}}
+  .label{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;margin:0 0 6px;}
+  .hexbox{background:var(--mono-bg);color:var(--mono-text);border-radius:8px;padding:10px 12px;
+          font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.72rem;word-break:break-all;
+          max-height:90px;overflow-y:auto;}
+  textarea{width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;resize:vertical;}
+  button{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px 16px;
+         font-weight:600;font-size:.85rem;cursor:pointer;}
+  button:hover{opacity:.88;}
+  button:disabled{opacity:.4;cursor:not-allowed;}
+  button.outline{background:transparent;color:var(--text);border:1px solid var(--border);}
+  .row{display:flex;gap:10px;}
+  .row > *{flex:1;}
+  .step{display:flex;align-items:center;gap:8px;font-size:.85rem;padding:2px 0;}
+  .ok{color:var(--good);}
+  .bad{color:var(--bad);}
+  .status{font-weight:700;font-size:.9rem;}
+  #logFeed{max-height:220px;overflow-y:auto;font-size:.78rem;}
+  .logline{border-bottom:1px solid var(--border);padding:6px 0;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🛡️ CryptoShield Dashboard</h1>
+  <p class="sub">SHA-256 &middot; HMAC-SHA256 &middot; ChaCha20-Poly1305 &mdash; powered by your Python modules via Flask</p>
+
+  <div class="panel">
+    <p class="label">Session Keys (this server run)</p>
+    <div class="grid3">
+      <div><p class="label">Master Key</p><div class="hexbox">{{ master_key }}</div></div>
+      <div><p class="label">Encryption Key (HKDF)</p><div class="hexbox">{{ enc_key }}</div></div>
+      <div><p class="label">Auth Key (HKDF)</p><div class="hexbox">{{ auth_key }}</div></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <p class="label">1 · Encrypt</p>
+      <textarea id="plaintextInput" rows="3">Confidential quarterly report data</textarea><br><br>
+      <button onclick="doEncrypt()">Encrypt with ChaCha20-Poly1305</button>
+      <div id="encryptResult" style="display:none;margin-top:12px;">
+        <p class="label">SHA-256(plaintext)</p><div class="hexbox" id="hashBox"></div><br>
+        <p class="label">Nonce</p><div class="hexbox" id="nonceBox"></div><br>
+        <p class="label">Ciphertext (incl. Poly1305 tag)</p><div class="hexbox" id="cipherBox"></div><br>
+        <p class="label">HMAC-SHA256 envelope tag</p><div class="hexbox" id="hmacBox"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <p class="label">2 · Decrypt &amp; Verify</p>
+      <div class="row">
+        <button id="decryptBtn" disabled onclick="doDecrypt()">Decrypt &amp; Verify</button>
+        <button id="tamperBtn" class="outline" disabled onclick="doTamper()">Tamper Ciphertext</button>
+      </div>
+      <div id="verifySteps" style="margin-top:12px;"></div>
+      <div id="recoveredBox" class="hexbox" style="display:none;margin-top:8px;"></div>
+      <p class="status" id="statusPill" style="margin-top:10px;">No bundle yet</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <p class="label">Audit Log (logs/audit_log.txt)</p>
+    <div id="logFeed"></div>
+  </div>
+</div>
+
+<script>
+async function post(url, body){
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+  return r.json();
+}
+async function refreshLog(){
+  const r = await fetch('/api/log');
+  const data = await r.json();
+  document.getElementById('logFeed').innerHTML = data.lines.map(l => `<div class="logline">${l}</div>`).join('');
+}
+async function doEncrypt(){
+  const text = document.getElementById('plaintextInput').value;
+  const data = await post('/api/encrypt', {text});
+  if(data.error){ alert(data.error); return; }
+  document.getElementById('hashBox').textContent = data.sha256_hash;
+  document.getElementById('nonceBox').textContent = data.nonce;
+  document.getElementById('cipherBox').textContent = data.ciphertext;
+  document.getElementById('hmacBox').textContent = data.hmac_tag;
+  document.getElementById('encryptResult').style.display = 'block';
+  document.getElementById('decryptBtn').disabled = false;
+  document.getElementById('tamperBtn').disabled = false;
+  document.getElementById('statusPill').textContent = 'Bundle ready';
+  document.getElementById('verifySteps').innerHTML = '';
+  document.getElementById('recoveredBox').style.display = 'none';
+  refreshLog();
+}
+async function doDecrypt(){
+  const data = await post('/api/decrypt', {});
+  if(data.error){ alert(data.error); return; }
+  document.getElementById('verifySteps').innerHTML = data.steps.map(s =>
+    `<div class="step ${s.ok?'ok':'bad'}"><span>${s.ok?'✅':'❌'}</span><span>${s.label}</span></div>`
+  ).join('');
+  if(data.success){
+    document.getElementById('recoveredBox').style.display = 'block';
+    document.getElementById('recoveredBox').textContent = data.plaintext;
+    document.getElementById('statusPill').textContent = 'DECRYPTED & VERIFIED';
+  } else {
+    document.getElementById('recoveredBox').style.display = 'none';
+    document.getElementById('statusPill').textContent = 'REJECTED';
+  }
+  refreshLog();
+}
+async function doTamper(){
+  const data = await post('/api/tamper', {});
+  if(data.error){ alert(data.error); return; }
+  document.getElementById('cipherBox').textContent = data.ciphertext + '  <- tampered';
+  document.getElementById('statusPill').textContent = 'Bundle tampered';
+  document.getElementById('verifySteps').innerHTML = '';
+  document.getElementById('recoveredBox').style.display = 'none';
+  refreshLog();
+}
+refreshLog();
+</script>
+</body>
+</html>
